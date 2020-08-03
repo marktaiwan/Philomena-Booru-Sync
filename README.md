@@ -9,6 +9,8 @@ Requires [Violentmonkey](https://violentmonkey.github.io/) or compatible userscr
 
 ## Instructions
 
+The button for opening the UI could be found next to the upload button.
+
 Make sure you filled in all the API keys and is logged in to the sites you want to sync to.
 
 The script trys to identify identical images on other boorus by the image's [hash value](https://developer.mozilla.org/en-US/docs/Glossary/hash). Normally it is done by simply requesting the data using the site API. However there an issue with Derpibooru that makes it returns only the hash value for pre-optimized images on many older uploads.
@@ -30,6 +32,6 @@ The "Enable fallback" setting tries to mitigate this by employing two additional
 
 ## Known/Unsolvable issue
 
-- If you are syncing to Twibooru, you *must* run the script the site itself.
+- If you are syncing to Twibooru, you *must* run the script on the site itself.
 
 - When downloading files for client-side hashing, the connection will frequently timeout on large videos. When this happens, a list of failed downloads will be included in the report generated at the end.
