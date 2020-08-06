@@ -110,7 +110,7 @@ class SyncManager {
           if (resp.status == 200) {
             return resp.response;
           } else {
-            this.log('Error while fetching ' + url);
+            this.log('Error while fetching ' + linkify(url));
             if (resp.response.error) this.log('Error message: ' + resp.response.error);
             console.log(resp);
             throw new Error();
@@ -166,10 +166,10 @@ class SyncManager {
         interactionCallback = 'likeImage';
       }
 
-      this.log(`Searching for image '${image.id}' (${++counter}/${total})`);
+      this.log(`Searching for image ${linkifyImage(image)} (${++counter}/${total})`);
       const {id, hashMatch, timeout, interaction: destInteraction} = await this.findImage(image);
 
-
+      linkifyImage({host: this.host, id});
       if (id && hashMatch) {
         if ((image.interaction == 'fave' && destInteraction.fave)
           || (image.interaction == 'like' && destInteraction.like)) {
@@ -181,16 +181,16 @@ class SyncManager {
           this.log('Success');
           this.report[interactionReportType].new++;
         } else {
-          this.log('[Error] Unable to sync: https://' + this.host + '/images/' + id);
+          this.log(`[Error] Unable to sync: ${linkifyImage({host: this.host, id})}`);
         }
       } else if (id && !hashMatch) {
-        this.log(`Possible match found for image '${image.id}' as '${id}'`);
+        this.log(`Possible match found for image '${linkifyImage(image)}' as '${linkifyImage({host: this.host, id})}'`);
         this.report[interactionReportType].suspected.push({sourceHost: image.host, source: image.id, dest: id});
       } else if (!id && timeout) {
         this.log('[Error] Connection timed out');
         this.report.timeouts.push({id: image.id, host: image.host});
       } else {
-        this.log('Not found: ' + image.id);
+        this.log('Not found: ' + linkifyImage(image));
         this.report[interactionReportType].notFound++;
       }
     }
@@ -291,7 +291,7 @@ class SyncManager {
   }
   performClientSideHash(image) {
     if (image.clientHash) return image.clientHash;
-    this.log(`Downloading image ${image.id} for client-side hashing`);
+    this.log(`Downloading image ${linkifyImage(image)} for client-side hashing`);
 
     // special case for svg uploads
     const fullImageURL = (image.mime_type !== 'image/svg+xml')
@@ -355,15 +355,15 @@ class SyncManager {
 
     const indent = (level = 0) => '  '.repeat(level);
 
-    log('');
+    log();
     this.log('Syncing report:');
     if (this.syncFaves) {
-      this.log('');
+      this.log();
       this.log(`${indent(1)}Faved images imported: ${this.report.faves.new}`);
       this.log(`${indent(1)}Faved images not found: ${this.report.faves.notFound}`);
     }
     if (this.syncLikes) {
-      this.log('');
+      this.log();
       this.log(`${indent(1)}Upvoted images imported: ${this.report.likes.new}`);
       this.log(`${indent(1)}Upvoted images not found: ${this.report.likes.notFound}`);
     }
@@ -371,25 +371,25 @@ class SyncManager {
       || this.report.likes.suspected.length > 0) {
       const records = [...this.report.faves.suspected, ...this.report.likes.suspected];
 
-      this.log('');
+      this.log();
       this.log('Exact matches for the following images could not be found via hash.');
       this.log('But potential match was found through reverse image search:');
 
       for (const record of records) {
         const {sourceHost, source, dest} = record;
-        this.log(`${indent(1)}source: https://${sourceHost}/images/${source}`);
-        this.log(`${indent(1)}=> target: https://${this.host}/images/${dest}`);
+        this.log(`${indent(1)}source: ${linkify(`https://${sourceHost}/images/${source}`)}`);
+        this.log(`${indent(1)}=> target: ${linkify(`https://${this.host}/images/${dest}`)}`);
       }
     }
     if (this.report.timeouts.length > 0) {
-      this.log('');
+      this.log();
       this.log('The script timed out while downloading the following files:');
       for (const img of this.report.timeouts) {
-        this.log(`${indent(1)}https://${img.host}/images/${img.id}`);
+        this.log(indent(1) + linkify(`https://${img.host}/images/${img.id}`));
       }
     }
   }
-  log(message) {
+  log(message = '') {
     message = `${this.name}: ${message}`;
     log(message);
   }
@@ -428,7 +428,7 @@ class PhilomenaSyncManager extends SyncManager {
   }
   searchByImage(image) {
     const url = 'https://' + this.host + this.reverseSearchApi + '?url=' + image.fileURL;
-    this.log(`Performing reverse image search for '${image.id}'`);
+    this.log(`Performing reverse image search for ${linkifyImage(image)}`);
     return makeRequest(url, 'POST')
       .then(this.handleResponse)
       .then(json => {
@@ -613,7 +613,17 @@ function initCSS() {
 #${SCRIPT_ID}_logger_output {
   width: 100%;
   height: 300px;
-  resize: none;
+  cursor: text;
+  overflow: auto;
+}
+
+.${SCRIPT_ID}_logger_entry {
+  line-height: 1.15em;
+  white-space: pre-wrap;
+}
+
+.${SCRIPT_ID}_logger_entry a {
+  background-color: hsl(0 0% 50% / 0.15);
 }
 `;
   if (!document.getElementById(`${SCRIPT_ID}-style`)) {
@@ -724,7 +734,7 @@ function openPanel() {
       <label>Filter by tags: </label>
     </div>
     <h5>Logs:</h5>
-    <textarea id="${SCRIPT_ID}_logger_output" class="input" readonly></textarea>
+    <div id="${SCRIPT_ID}_logger_output" class="input field" tabindex="0"></div>
     <button id="${SCRIPT_ID}_start_sync" type="button"
       class="button button--state-primary"
       data-click-preventdefault="true">
@@ -872,7 +882,8 @@ async function startSync() {
   // get faves + likes from source
   sourceBooru.log('Begin fetching image interactions');
   await sourceBooru.getInteractions();
-  sourceBooru.log(`\nResult: ${sourceBooru.faves.length} faves and ${sourceBooru.likes.length} likes`);
+  sourceBooru.log();
+  sourceBooru.log(`Result: ${sourceBooru.faves.length} faves and ${sourceBooru.likes.length} likes`);
 
   // get faves + likes from target
   log('Begin fetching image interactions from sync targets');
@@ -890,7 +901,7 @@ async function startSync() {
   // reports
   Object.values(destBoorus).forEach(booru => booru.printReport());
 
-  log('');
+  log();
   log('All done!');
 
   panel.dataset.syncing = '0';
@@ -987,10 +998,29 @@ function hashCompare(sourceImg, destImg) {
     || sourceImg.hash == destImg.hash);
 }
 
-function log(message) {
+function linkify(href, text = href) {
+  const a = create('a');
+  a.href = href;
+  a.target = '_blank';
+  a.referrerPolicy = 'origin';
+  a.relList.add('noreferrer', 'noopender');
+  a.innerText = text;
+  return a.outerHTML;
+}
+
+function linkifyImage(image) {
+  const imgLink = 'https://' + image.host + '/images/' + image.id;
+  return linkify(imgLink, image.id);
+}
+
+function log(message = '') {
   const output = $(`#${SCRIPT_ID}_logger_output`);
   if (!output) return;
-  output.value += message + '\n';
+
+  const logEntry = create('span');
+  logEntry.classList.add(`${SCRIPT_ID}_logger_entry`);
+  logEntry.innerHTML = message + '\n';
+  output.appendChild(logEntry);
 
   if (!output.matches(':hover')) output.scrollTop = output.scrollHeight;
 }
