@@ -290,7 +290,7 @@ class SyncManager {
       });
   }
   performClientSideHash(image) {
-    if (image.clientHash) return image.clientHash;
+    if (image.clientHash) return [image.clientHash];
     this.log(`Downloading image ${linkifyImage(image)} for client-side hashing`);
 
     // special case for svg uploads
