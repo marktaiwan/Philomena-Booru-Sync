@@ -622,6 +622,11 @@ function initCSS() {
   white-space: pre-wrap;
 }
 
+.${SCRIPT_ID}_logger_entry:last-child {
+  display: inline-block;
+  margin-bottom: 1.15em;
+}
+
 .${SCRIPT_ID}_logger_entry a {
   background-color: hsl(0 0% 50% / 0.15);
 }
