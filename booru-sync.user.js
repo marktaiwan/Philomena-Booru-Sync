@@ -30,7 +30,15 @@
 'use strict';
 
 const SCRIPT_ID = 'booru_sync';
-const TIMEOUT = 30; // seconds
+
+const SEC = 1000;
+const MIN = 60 * SEC;
+const HOUR = 60 * MIN;
+const DAY = 24 * HOUR;
+
+const TIMEOUT = 30 * SEC;
+const CACHE_PRUNE_INTERVAL = 30 * DAY;
+const CACHE_MAX_AGE = 365 * DAY;
 
 const boorus = {
   derpibooru: {
@@ -210,14 +218,13 @@ class SyncManager {
       }
     };
 
-    const {hash, orig_hash, clientHash} = image;
-    const hashes = clientHash ? [clientHash] : [hash, orig_hash];
-    let {destId, interaction} = await this.searchByHash(hashes);
+    const {hash, orig_hash, computedHash} = image;
+    let {destId, interaction} = await this.searchByHash([hash, orig_hash]);
     let hashMatch = true;
     let timeout = false;
 
     if (!destId && this.useFallback) {
-      if (!clientHash) {
+      if (!computedHash) {
         let hash;
         try {
           hash = await Promise.race([
@@ -232,7 +239,7 @@ class SyncManager {
                */
               window.setTimeout(() => {
                 resolve({timeout: true, error: true});
-              }, 1e3 * TIMEOUT);
+              }, TIMEOUT);
 
             })
           ]);
@@ -290,7 +297,8 @@ class SyncManager {
       });
   }
   performClientSideHash(image) {
-    if (image.clientHash) return [image.clientHash];
+    if (image.computedHash) return [image.hash];
+
     this.log(`Downloading image ${linkifyImage(image)} for client-side hashing`);
 
     // special case for svg uploads
@@ -314,7 +322,9 @@ class SyncManager {
           .map(b => b.toString(16).padStart(2, '0'))
           .join('');
 
-        image.clientHash = hashHex;
+        image.computedHash = true;
+        image.hash = hashHex;
+        setClientHash(image, hashHex);
         return [hashHex];
       });
   }
@@ -346,7 +356,10 @@ class SyncManager {
   }
   transformImageResponse(imageResponse) {
     imageResponse.host = this.host;
-    imageResponse.hash = imageResponse.sha512_hash;
+
+    const clientHash = getClientHash(imageResponse);
+    imageResponse.hash = clientHash || imageResponse.sha512_hash;
+    imageResponse.computedHash = Boolean(clientHash);
     imageResponse.orig_hash = imageResponse.orig_sha512_hash;
     imageResponse.fileURL = makeAbsolute(imageResponse.representations.full, this.host);
     return imageResponse;
@@ -1028,6 +1041,18 @@ function log(message = '') {
   output.appendChild(logEntry);
 
   if (!output.matches(':hover')) output.scrollTop = output.scrollHeight;
+}
+
+function getClientHash(image) {
+  const store = GM_getValue('hash_store', {});
+  return store[image.host]?.[image.id]?.hash;
+}
+
+function setClientHash(image, hash) {
+  const store = GM_getValue('hash_store', {});
+  if (!store[image.host]) store[image.host] = {};
+  store[image.host][image.id] = {hash, timestamp: Date.now()};
+  GM_setValue('hash_store', store);
 }
 
 initCSS();
