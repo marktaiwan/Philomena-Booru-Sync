@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Booru Sync
 // @description  Sync faves and upvotes across boorus.
-// @version      1.2.0
+// @version      1.2.1
 // @author       Marker
 // @license      MIT
 // @namespace    https://github.com/marktaiwan/
@@ -1021,7 +1021,7 @@ function linkify(href, text = href) {
   a.href = href;
   a.target = '_blank';
   a.referrerPolicy = 'origin';
-  a.relList.add('noreferrer', 'noopender');
+  a.relList.add('noreferrer', 'noopener');
   a.innerText = text;
   return a.outerHTML;
 }
