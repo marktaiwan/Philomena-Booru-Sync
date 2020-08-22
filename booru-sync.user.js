@@ -504,7 +504,7 @@ class BooruOnRailsSyncManager extends SyncManager {
   constructor(booruData, apiKey, settings, isSource = false) {
     super(booruData, apiKey, settings, isSource);
     this.imageResultsProp = 'search';
-    this.searchApi = '/search/index.json';
+    this.searchApi = '/search.json';
   }
   async makeInteractionRequest(url, body) {
     const resp = await fetch(url, {
