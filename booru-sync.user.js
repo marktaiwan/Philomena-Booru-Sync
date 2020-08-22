@@ -524,6 +524,43 @@ class BooruOnRailsSyncManager extends SyncManager {
     }
     return (resp.status == 200);
   }
+  async findImage(image) {
+    let hashMatch = true;
+    let timeout = false;
+    let {destId, interaction} = await this.searchByApi(image);
+
+    if (!destId) {
+      ({destId, hashMatch, timeout, interaction} = await super.findImage(image));
+
+    }
+    return {id: destId, hashMatch, timeout, interaction};
+  }
+  async searchByApi(image) {
+    let destId = null;
+    let interaction = {};
+
+    if (image.host == 'derpibooru.org') {
+      const site = 'derpibooru';
+      const query = makeQueryString({
+        q: encodeSearch(`location:${site} && id_at_location:${image.id}`),
+        filter_id: this.filterId
+      });
+      const url = 'https://' + this.host + this.searchApi + query;
+      const json = await makeRequest(url).then(this.handleResponse);
+      if (json.total > 0) {
+        destId = json[this.imageResultsProp][0].id;
+        interaction = {
+          fave: json.interactions.some(
+            inter => inter.image_id == destId && inter.interaction_type == 'faved'
+          ),
+          like: json.interactions.some(
+            inter => inter.image_id == destId && inter.interaction_type == 'voted' && inter.value == 'up'
+          )
+        };
+      }
+    }
+    return {destId, interaction};
+  }
   faveImage(imageId) {
     const url = window.location.origin + '/api/v2/interactions/fave';
     const body = {class: 'Image',
