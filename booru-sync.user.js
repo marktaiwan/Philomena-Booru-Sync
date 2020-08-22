@@ -531,7 +531,6 @@ class BooruOnRailsSyncManager extends SyncManager {
 
     if (!destId) {
       ({destId, hashMatch, timeout, interaction} = await super.findImage(image));
-
     }
     return {id: destId, hashMatch, timeout, interaction};
   }
