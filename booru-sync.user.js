@@ -30,15 +30,7 @@
 'use strict';
 
 const SCRIPT_ID = 'booru_sync';
-
-const SEC = 1000;
-const MIN = 60 * SEC;
-const HOUR = 60 * MIN;
-const DAY = 24 * HOUR;
-
-const TIMEOUT = 30 * SEC;
-const CACHE_PRUNE_INTERVAL = 30 * DAY;
-const CACHE_MAX_AGE = 365 * DAY;
+const TIMEOUT = 30 * 1e3;
 
 const boorus = {
   derpibooru: {
