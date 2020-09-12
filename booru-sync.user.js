@@ -382,6 +382,7 @@ class SyncManager {
 
       for (const record of records) {
         const {sourceHost, source, dest} = record;
+        this.log();
         this.log(`${indent(1)}source: ${linkify(`https://${sourceHost}/images/${source}`)}`);
         this.log(`${indent(1)}=> target: ${linkify(`https://${this.host}/images/${dest}`)}`);
       }
