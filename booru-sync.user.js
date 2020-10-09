@@ -519,12 +519,12 @@ class BooruOnRailsSyncManager extends SyncManager {
   async findImage(image) {
     let hashMatch = true;
     let timeout = false;
-    let {destId, interaction} = await this.searchByApi(image);
+    let {id, interaction} = await this.searchByApi(image);
 
-    if (!destId) {
-      ({destId, hashMatch, timeout, interaction} = await super.findImage(image));
+    if (!id) {
+      ({id, hashMatch, timeout, interaction} = await super.findImage(image));
     }
-    return {id: destId, hashMatch, timeout, interaction};
+    return {id, hashMatch, timeout, interaction};
   }
   async searchByApi(image) {
     let destId = null;
@@ -550,7 +550,7 @@ class BooruOnRailsSyncManager extends SyncManager {
         };
       }
     }
-    return {destId, interaction};
+    return {id: destId, interaction};
   }
   faveImage(imageId) {
     const url = window.location.origin + '/api/v2/interactions/fave';
