@@ -169,7 +169,6 @@ class SyncManager {
       this.log(`Searching for image ${linkifyImage(image)} (${++counter}/${total})`);
       const {id, hashMatch, timeout, interaction: destInteraction} = await this.findImage(image);
 
-      linkifyImage({host: this.host, id});
       if (id && hashMatch) {
         if ((image.interaction == 'fave' && destInteraction.fave)
           || (image.interaction == 'like' && destInteraction.like)) {
