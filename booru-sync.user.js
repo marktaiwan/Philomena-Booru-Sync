@@ -1004,7 +1004,7 @@ function makeRequest(
       responseType,
       headers,
       data,
-      timeout: 1e3 * TIMEOUT,
+      timeout: TIMEOUT,
       onload: resp => resolve(resp),
       onerror: resp => resolve({error: true, url: resp.finalUrl, response: resp}),
       ontimeout: () => resolve({timeout: true, error: true}),
