@@ -119,7 +119,7 @@ class SyncManager {
         const collection = response[this.imageResultsProp];
         collection.forEach(this.transformImageResponse, this);
 
-        for (const image of collection) accu.push(image);
+        accu.push(...collection);
 
       } while (response.interactions.length > 0);
 
