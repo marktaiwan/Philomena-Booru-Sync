@@ -85,7 +85,8 @@ class SyncManager {
     this.searchApi = null;
     this.reverseSearchApi = null;
   }
-  async getInteractions() {
+  async getInteractions(totalSourceImageCount = 0) {
+    const RESULTS_PER_PAGE = 50;
     let response;
     const performSearch = async (name, searchTerm) => {
 
@@ -101,9 +102,9 @@ class SyncManager {
         const query = makeQueryString({
           q: encodeSearch(searchTerm),
           filter_id: this.filterId,
-          per_page: 50,
+          per_page: RESULTS_PER_PAGE,
           key: this.apiKey,
-          page: page++,
+          page: page,
         });
         const url = 'https://' + this.host + this.searchApi + query;
         response = await makeRequest(url).then(resp => {
@@ -116,11 +117,21 @@ class SyncManager {
             throw new Error();
           }
         });
+
+        if (page == 1 && !this.isSource) {
+          // shortcut when it takes less requests overall to
+          // check the voting state of each image individually
+          // then to fetch every page of interaction results
+          const totalInteractions = response.total;
+          const totalPages = Math.ceil(totalInteractions / RESULTS_PER_PAGE);
+          if (totalPages > totalSourceImageCount) return [];
+        }
+
         const collection = response[this.imageResultsProp];
         collection.forEach(this.transformImageResponse, this);
 
         accu.push(...collection);
-
+        page += 1;
       } while (response.interactions.length > 0);
 
       return accu;
@@ -269,6 +280,7 @@ class SyncManager {
     const query = makeQueryString({
       q: encodeSearch(searchItems.join(' || ')),
       filter_id: this.filterId,
+      key: this.apiKey,
     });
     const url = 'https://' + this.host + this.searchApi + query;
 
@@ -416,6 +428,20 @@ class PhilomenaSyncManager extends SyncManager {
       JSON.stringify(body)
     );
     if (resp.status != 200) {
+      try {
+        // When encountering an error, the response may not be in json.
+        // In this situation, accessing resp.response on a malformed
+        // response will cause it to throw a SyntaxError
+        resp.response;
+      } catch (error) {
+        if (error instanceof SyntaxError) {
+          // delete the getter and replace it with a plain object
+          delete resp.response;
+          resp.response = {error: resp.responseText};
+        } else {
+          throw error;
+        }
+      }
       this.log('[Error] Unexpected status code ' + resp.status);
       if (resp.response.error) this.log('Error message: ' + resp.response.error);
     }
@@ -930,11 +956,12 @@ async function startSync() {
   await sourceBooru.getInteractions();
   sourceBooru.log();
   sourceBooru.log(`Result: ${sourceBooru.faves.length} faves and ${sourceBooru.likes.length} likes`);
+  const totalResultsCount = sourceBooru.faves.length + sourceBooru.likes.length;
 
   // get faves + likes from target
   log('Begin fetching image interactions from sync targets');
   await Promise.allSettled(
-    Object.values(destBoorus).map(booru => booru.getInteractions())
+    Object.values(destBoorus).map(booru => booru.getInteractions(totalResultsCount))
   );
 
   // initiate import
