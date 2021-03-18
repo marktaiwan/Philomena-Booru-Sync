@@ -605,6 +605,7 @@ class BooruOnRailsSyncManager extends SyncManager {
 }
 
 const $ = (selector, parent = document) => parent.querySelector(selector);
+const $$ = (selector, parent = document) => parent.querySelectorAll(selector);
 const create = ele => document.createElement(ele);
 
 function initUI() {
@@ -783,7 +784,7 @@ function openPanel() {
     return frag;
   };
 
-  const panelWrapper = document.createElement('div');
+  const panelWrapper = create('div');
   panelWrapper.id = `${SCRIPT_ID}--panelWrapper`;
   panelWrapper.innerHTML = `
 <div id="${SCRIPT_ID}--panel" class="">
@@ -817,6 +818,13 @@ function openPanel() {
       title="Hammer time"
       data-click-preventdefault="true">
       Stop!
+    </button>
+    <button id="${SCRIPT_ID}_export_log" type="button"
+      class="button button--state-warning"
+      title="Save log to file"
+      style="float: right;"
+      data-click-preventdefault="true">
+      Save log
     </button>
   </div>
 </div>
@@ -868,9 +876,8 @@ function openPanel() {
   });
 
   // bind listener to button
-  $(`#${SCRIPT_ID}_start_sync`, panelWrapper).addEventListener('click', () => {
-    startSync();
-  });
+  $(`#${SCRIPT_ID}_start_sync`, panelWrapper).addEventListener('click', startSync);
+  $(`#${SCRIPT_ID}_export_log`, panelWrapper).addEventListener('click', downloadLog);
   $(`#${SCRIPT_ID}_cancel_sync`, panelWrapper).addEventListener('click', () => {
     presidentMadagascar(activeSyncs);
   });
@@ -1102,6 +1109,20 @@ function log(message = '') {
   }
 
   if (!output.matches(':hover')) output.scrollTop = output.scrollHeight;
+}
+
+function downloadLog() {
+  const output = $(`#${SCRIPT_ID}_logger_output`).cloneNode(true);
+  $$('a', output).forEach(anchor => anchor.innerText = anchor.href);
+  $$('.hidden', output).forEach(ele => ele.classList.remove('hidden'));
+
+  const blob = new Blob([output.innerText], {type: 'text'});
+  const anchor = create('a');
+  anchor.setAttribute('href', URL.createObjectURL(blob));
+  anchor.setAttribute('download', 'booru-sync.log');
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
 }
 
 function getClientHash(image) {
