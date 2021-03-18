@@ -793,7 +793,7 @@ function openPanel() {
   </div>
   <div class="${SCRIPT_ID}--body block__tab">
     Sync faves and likes between boorus
-    <h4 class="block__header--light">API keyes</h4>
+    <h4 class="block__header--light">API keys</h4>
     <div id="${SCRIPT_ID}_api_keys" class="${SCRIPT_ID}--table"></div>
     <h4 class="block__header--light">Settings</h4>
     <div id="${SCRIPT_ID}_settings"></div>
