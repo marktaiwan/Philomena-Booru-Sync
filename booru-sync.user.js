@@ -1090,10 +1090,16 @@ function log(message = '') {
   const output = $(`#${SCRIPT_ID}_logger_output`);
   if (!output) return;
 
+  const MAX_DISPLAYED_ROW = 1000;
+  const logEntryClass = `${SCRIPT_ID}_logger_entry`;
   const logEntry = create('span');
-  logEntry.classList.add(`${SCRIPT_ID}_logger_entry`);
+  logEntry.classList.add(logEntryClass);
   logEntry.innerHTML = message + '\n';
   output.appendChild(logEntry);
+
+  if (output.childElementCount > MAX_DISPLAYED_ROW) {
+    $(`.${logEntryClass}:not(.hidden)`).classList.add('hidden');
+  }
 
   if (!output.matches(':hover')) output.scrollTop = output.scrollHeight;
 }
