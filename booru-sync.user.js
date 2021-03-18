@@ -1114,7 +1114,6 @@ function log(message = '') {
 function downloadLog() {
   const output = $(`#${SCRIPT_ID}_logger_output`).cloneNode(true);
   $$('a', output).forEach(anchor => anchor.innerText = anchor.href);
-  $$('.hidden', output).forEach(ele => ele.classList.remove('hidden'));
 
   const blob = new Blob([output.innerText], {type: 'text'});
   const anchor = create('a');
