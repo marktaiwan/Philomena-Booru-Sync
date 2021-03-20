@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Booru Sync
 // @description  Sync faves and upvotes across boorus.
-// @version      1.3.5
+// @version      1.3.6
 // @author       Marker
 // @license      MIT
 // @namespace    https://github.com/marktaiwan/
@@ -723,14 +723,25 @@ function togglePanel() {
 function openPanel() {
 
   const createApiInput = () => {
+    const onFocus = ({target: input}) => {
+      input.value = input.dataset.content;
+    };
+    const onBlur = ({target: input}) => {
+      input.dataset.content = input.value;
+      input.value = '*'.repeat(input.value.length);
+    };
     const frag = document.createDocumentFragment();
     for (const key in boorus) {
       const span = create('span');
       const input = create('input');
       span.innerText = boorus[key].name + ' API key:';
-      input.type = 'password';
-      input.autocomplete = 'off';
+      input.classList.add(`${SCRIPT_ID}--input-sensitive`);
+      input.type = 'text';
       input.dataset.syncSetting = key + '_api';
+      input.dataset.content = '';
+      input.addEventListener('focus', onFocus);
+      input.addEventListener('blur', onBlur);
+
       frag.appendChild(span);
       frag.appendChild(input);
     }
@@ -996,7 +1007,10 @@ function setSetting(settingId, val) {
   const ele = $(`[data-sync-setting="${settingId}"]`, panel);
 
   if (!ele) return;
-  if (ele.matches('[type="text"]') || ele.matches('[type="password"]')) {
+  if (ele.matches(`.${SCRIPT_ID}--input-sensitive`)) {
+    ele.dataset.content = val;
+    ele.value = '*'.repeat(val.length);
+  } else if (ele.matches('[type="text"]')) {
     ele.value = val;
   } else if (ele.matches('[type="checkbox"]')) {
     ele.checked = val;
@@ -1010,7 +1024,9 @@ function getSetting(settingId) {
   const ele = $(`[data-sync-setting="${settingId}"]`, panel);
 
   if (!ele) return;
-  if (ele.matches('[type="text"]') || ele.matches('[type="password"]')) {
+  if (ele.matches(`.${SCRIPT_ID}--input-sensitive`)) {
+    return ele.dataset.content;
+  } else if (ele.matches('[type="text"]')) {
     return ele.value;
   } else if (ele.matches('[type="checkbox"]')) {
     return ele.checked;
