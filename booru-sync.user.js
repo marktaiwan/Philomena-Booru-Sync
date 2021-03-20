@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Booru Sync
 // @description  Sync faves and upvotes across boorus.
-// @version      1.3.4
+// @version      1.3.5
 // @author       Marker
 // @license      MIT
 // @namespace    https://github.com/marktaiwan/
@@ -82,6 +82,7 @@ class SyncManager {
 
     /* Must be initialized by subclass */
     this.imageResultsProp = null;
+    this.imageIdProp = null;
     this.searchApi = null;
     this.reverseSearchApi = null;
   }
@@ -290,10 +291,10 @@ class SyncManager {
         const destId = (json[this.imageResultsProp].length > 0) ? json[this.imageResultsProp][0].id : null;
         const interaction = {
           fave: json.interactions.some(
-            inter => inter.image_id == destId && inter.interaction_type == 'faved'
+            inter => inter[this.imageIdProp] == destId && inter.interaction_type == 'faved'
           ),
           like: json.interactions.some(
-            inter => inter.image_id == destId && inter.interaction_type == 'voted' && inter.value == 'up'
+            inter => inter[this.imageIdProp] == destId && inter.interaction_type == 'voted' && inter.value == 'up'
           )
         };
         return {destId, interaction};
@@ -416,6 +417,7 @@ class PhilomenaSyncManager extends SyncManager {
   constructor(booruData, apiKey, settings, isSource = false) {
     super(booruData, apiKey, settings, isSource);
     this.imageResultsProp = 'images';
+    this.imageIdProp = 'image_id';
     this.searchApi = '/api/v1/json/search/images';
     this.reverseSearchApi = '/api/v1/json/search/reverse';
   }
@@ -522,6 +524,7 @@ class BooruOnRailsSyncManager extends SyncManager {
   constructor(booruData, apiKey, settings, isSource = false) {
     super(booruData, apiKey, settings, isSource);
     this.imageResultsProp = 'search';
+    this.imageIdProp = 'post_id';
     this.searchApi = '/search.json';
   }
   async makeInteractionRequest(url, body) {
@@ -568,10 +571,10 @@ class BooruOnRailsSyncManager extends SyncManager {
         destId = json[this.imageResultsProp][0].id;
         interaction = {
           fave: json.interactions.some(
-            inter => inter.image_id == destId && inter.interaction_type == 'faved'
+            inter => inter[this.imageIdProp] == destId && inter.interaction_type == 'faved'
           ),
           like: json.interactions.some(
-            inter => inter.image_id == destId && inter.interaction_type == 'voted' && inter.value == 'up'
+            inter => inter[this.imageIdProp] == destId && inter.interaction_type == 'voted' && inter.value == 'up'
           )
         };
       }
