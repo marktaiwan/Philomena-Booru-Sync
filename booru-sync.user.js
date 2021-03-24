@@ -583,7 +583,8 @@ class BooruOnRailsSyncManager extends SyncManager {
   }
   faveImage(imageId) {
     const url = window.location.origin + '/api/v2/interactions/fave';
-    const body = {class: 'Image',
+    const body = {
+      class: 'Image',
       id: String(imageId),
       value: 'true',
       _method: 'PUT',
