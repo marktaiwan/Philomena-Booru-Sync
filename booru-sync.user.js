@@ -869,11 +869,14 @@ function openPanel() {
   $(`#${SCRIPT_ID}_sync_filter`, panelWrapper).appendChild(tagFilter);
 
   // close panel
+  let mousedownTarget, mouseupTarget;
+  panelWrapper.addEventListener('mousedown', e => mousedownTarget = e.target);
+  panelWrapper.addEventListener('mouseup', e => mouseupTarget = e.target);
   panelWrapper.addEventListener('click', e => {
-    if (e.target == e.currentTarget || e.target.matches(`#${SCRIPT_ID}--close-button`)) {
-      if ($(`#${SCRIPT_ID}--panel`)?.dataset.syncing == '1') return;
-      panelWrapper.remove();
-    }
+    if (e.target == e.currentTarget && mousedownTarget != mouseupTarget) return;
+    if (e.target != e.currentTarget && !e.target.matches(`#${SCRIPT_ID}--close-button`)) return;
+    if ($(`#${SCRIPT_ID}--panel`)?.dataset.syncing == '1') return;
+    panelWrapper.remove();
   });
 
   // save changes
