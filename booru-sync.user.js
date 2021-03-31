@@ -86,10 +86,10 @@ class SyncManager {
     this.searchApi = null;
     this.reverseSearchApi = null;
   }
-  async getInteractions(totalSourceImageCount = 0) {
+  async getInteractions(sourceResultsCount = {faves: 0, likes: 0}) {
     const RESULTS_PER_PAGE = 50;
     let response;
-    const performSearch = async (name, searchTerm) => {
+    const performSearch = async (name, searchTerm, sourceTotal) => {
 
       if (this.isSource && this.tagFilter !== '') {
         searchTerm = `${searchTerm} && (${this.tagFilter})`;
@@ -125,7 +125,7 @@ class SyncManager {
           // then to fetch every page of interaction results
           const totalInteractions = response.total;
           const totalPages = Math.ceil(totalInteractions / RESULTS_PER_PAGE);
-          if (totalPages > totalSourceImageCount) return [];
+          if (totalPages > sourceTotal || sourceTotal == 0) return [];
         }
 
         const collection = response[this.imageResultsProp];
@@ -138,8 +138,8 @@ class SyncManager {
       return accu;
     };
 
-    const faves = (this.syncFaves) ? await performSearch('faves', 'my:faves') : [];
-    const likes = (this.syncLikes) ? await performSearch('likes', '(my:upvotes, -my:faves)') : [];
+    const faves = (this.syncFaves) ? await performSearch('faves', 'my:faves', sourceResultsCount.faves) : [];
+    const likes = (this.syncLikes) ? await performSearch('likes', '(my:upvotes, -my:faves)', sourceResultsCount.likes) : [];
 
     if (!this.ok) return;
     this.faves = faves;
@@ -978,12 +978,15 @@ async function startSync() {
   await sourceBooru.getInteractions();
   sourceBooru.log();
   sourceBooru.log(`Result: ${sourceBooru.faves.length} faves and ${sourceBooru.likes.length} likes`);
-  const totalResultsCount = sourceBooru.faves.length + sourceBooru.likes.length;
+  const sourceResultsCount = {
+    faves: sourceBooru.faves.length,
+    likes: sourceBooru.likes.length
+  };
 
   // get faves + likes from target
   log('Begin fetching image interactions from sync targets');
   await Promise.allSettled(
-    Object.values(destBoorus).map(booru => booru.getInteractions(totalResultsCount))
+    Object.values(destBoorus).map(booru => booru.getInteractions(sourceResultsCount))
   );
 
   // initiate import
