@@ -613,7 +613,9 @@ const $$ = (selector, parent = document) => parent.querySelectorAll(selector);
 const create = ele => document.createElement(ele);
 
 function initUI() {
-  const uploadButton = $('a[title="Upload"]');
+  const searchForm = $('form[action="/search"]');
+  const headerGroup = searchForm?.previousElementSibling;
+
   const panelButton = create('a');
   panelButton.classList.add('header__link');
   panelButton.href = '#';
@@ -623,7 +625,7 @@ function initUI() {
   panelButton.addEventListener('click', togglePanel);
 
   panelButton.appendChild(iconOfSin);
-  uploadButton?.after(panelButton);
+  headerGroup?.append(panelButton);
 }
 
 function initCSS() {
