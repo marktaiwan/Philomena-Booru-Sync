@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Booru Sync
 // @description  Sync faves and upvotes across boorus.
-// @version      1.3.8
+// @version      1.4.0
 // @author       Marker
 // @license      MIT
 // @namespace    https://github.com/marktaiwan/
