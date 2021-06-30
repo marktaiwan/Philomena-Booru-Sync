@@ -56,6 +56,23 @@ const boorus = {
   },
 };
 
+const defaultSettings = {
+  derpibooru_api: '',
+  ponybooru_api: '',
+  ponerpics_api: '',
+  twibooru_api: '',
+  sync_faves: true,
+  sync_likes: true,
+  fallback: false,
+  autorun: 0,
+  tag_filter: '',
+  sync_source: 'derpibooru',
+  dest_derpibooru: false,
+  dest_ponybooru: false,
+  dest_ponerpics: false,
+  dest_twibooru: false,
+};
+
 let activeSyncs = [];
 
 class SyncManager {
@@ -751,13 +768,29 @@ function openPanel() {
     return frag;
   };
 
-  const createCheckbox = (id, text, alt) => {
+  const createNumericField = (id, text, alt) => {
+    alt ??= '';
     const container = create('div');
     container.classList.add(`${SCRIPT_ID}__setting_container`);
     container.innerHTML = `
-      <input id="${SCRIPT_ID}__${id}" type="checkbox" data-sync-setting="${id}">
-      <label for="${SCRIPT_ID}__${id}" ${alt ? `title="${alt}"` : ''}>${text}</label>
-`;
+      <label title="${alt}">
+        <input type="number" min="0" max="360" data-sync-setting="${id}">
+        ${text}
+      </label>
+    `;
+    return container;
+  };
+
+  const createCheckbox = (id, text, alt) => {
+    alt ??= '';
+    const container = create('div');
+    container.classList.add(`${SCRIPT_ID}__setting_container`);
+    container.innerHTML = `
+      <label title="${alt}">
+        <input type="checkbox" data-sync-setting="${id}">
+        ${text}
+      </label>
+    `;
     return container;
   };
 
@@ -847,20 +880,32 @@ function openPanel() {
 </div>
 `;
 
-  $(`#${SCRIPT_ID}_api_keys`, panelWrapper).appendChild(createApiInput());
-  $(`#${SCRIPT_ID}_settings`, panelWrapper).appendChild(createCheckbox('sync_faves', 'Sync faves'));
-  $(`#${SCRIPT_ID}_settings`, panelWrapper).appendChild(createCheckbox('sync_likes', 'Sync upvotes'));
-  $(`#${SCRIPT_ID}_settings`, panelWrapper).appendChild(
+  $(`#${SCRIPT_ID}_api_keys`, panelWrapper).append(
+    createApiInput(),
+  );
+  $(`#${SCRIPT_ID}_settings`, panelWrapper).append(
+    createCheckbox('sync_faves', 'Sync faves'),
+    createCheckbox('sync_likes', 'Sync upvotes'),
     createCheckbox(
       'fallback',
       'Enable fallback',
-      'Use client-side hashing and reverse image search to find matching images'
-    ));
-  $(`#${SCRIPT_ID}_sync_source`, panelWrapper).appendChild(createRadioGroup('sync_source', 'Sync source: '));
-  $(`#${SCRIPT_ID}_sync_dest`, panelWrapper).appendChild(createCheckbox('dest_derpibooru', 'Derpibooru'));
-  $(`#${SCRIPT_ID}_sync_dest`, panelWrapper).appendChild(createCheckbox('dest_ponybooru', 'Ponybooru'));
-  $(`#${SCRIPT_ID}_sync_dest`, panelWrapper).appendChild(createCheckbox('dest_ponerpics', 'Ponerpics'));
-  $(`#${SCRIPT_ID}_sync_dest`, panelWrapper).appendChild(createCheckbox('dest_twibooru', 'Twibooru'));
+      'Use client-side hashing and reverse image search to find matching images',
+    ),
+    createNumericField(
+      'autorun',
+      'Autorun interval',
+      'Schedule the script to automatically run every X days. 0 to disable.'),
+  );
+
+  $(`#${SCRIPT_ID}_sync_source`, panelWrapper).append(
+    createRadioGroup('sync_source', 'Sync source: '),
+  );
+  $(`#${SCRIPT_ID}_sync_dest`, panelWrapper).append(
+    createCheckbox('dest_derpibooru', 'Derpibooru'),
+    createCheckbox('dest_ponybooru', 'Ponybooru'),
+    createCheckbox('dest_ponerpics', 'Ponerpics'),
+    createCheckbox('dest_twibooru', 'Twibooru'),
+  );
 
   // tag filtering
   const tagFilter = create('input');
@@ -905,33 +950,15 @@ function openPanel() {
   document.body.appendChild(panelWrapper);
 
   // init settings
-  Object.entries({
-    derpibooru_api: '',
-    ponybooru_api: '',
-    ponerpics_api: '',
-    twibooru_api: '',
-    sync_faves: true,
-    sync_likes: true,
-    fallback: false,
-    tag_filter: '',
-    sync_source: 'derpibooru',
-    dest_derpibooru: false,
-    dest_ponybooru: false,
-    dest_ponerpics: false,
-    dest_twibooru: false,
-  })
-  .forEach(([key, defaultValue]) => {
-    const val = GM_getValue(key, defaultValue);
-    setSetting(key, val);
-  });
+  initKeyVal();
 
   // disable Twibooru checkbox when not on the site
   if (window.location.host !== boorus.twibooru.host) {
-    const checkbox = $(`#${SCRIPT_ID}__dest_twibooru`, panelWrapper);
-    checkbox.checked = false;
+    const checkbox = $(`.${SCRIPT_ID}__setting_container [data-sync-setting="dest_twibooru"]`, panelWrapper);
     checkbox.disabled = true;
-    checkbox.nextElementSibling.title = 'Syncing to Twibooru only works when on the site itself';
+    checkbox.parentElement.title = 'Syncing to Twibooru only works when on the site itself';
   }
+
 }
 
 function createSyncManager(booruData, ...args) {
@@ -941,10 +968,12 @@ function createSyncManager(booruData, ...args) {
 
 async function startSync() {
   const panel = $(`#${SCRIPT_ID}--panel`);
-  if (panel.dataset.syncing == '1') {
-    return;
-  } else {
-    panel.dataset.syncing = '1';
+  if (panel) {
+    if (panel.dataset.syncing == '1') {
+      return;
+    } else {
+      panel.dataset.syncing = '1';
+    }
   }
 
   const settings = {
@@ -1007,19 +1036,38 @@ async function startSync() {
   log();
   log('All done!');
 
-  panel.dataset.syncing = '0';
+  if (panel) panel.dataset.syncing = '0';
   activeSyncs = [];
+  GM_setValue('last_ran', Date.now());
+}
+
+function initKeyVal() {
+  return Object
+    .entries(defaultSettings)
+    .map(([key, defaultValue]) => {
+      let val = GM_getValue(key, defaultValue);
+      if (key == 'dest_twibooru'
+        && window.location.host !== boorus.twibooru.host
+      ) {
+        val = false;
+      }
+      setSetting(key, val);
+      return val;
+    });
 }
 
 function setSetting(settingId, val) {
   const panel = $(`#${SCRIPT_ID}--panel`);
-  const ele = $(`[data-sync-setting="${settingId}"]`, panel);
+  if (!panel) return;
 
+  const ele = $(`[data-sync-setting="${settingId}"]`, panel);
   if (!ele) return;
   if (ele.matches(`.${SCRIPT_ID}--input-sensitive`)) {
     ele.dataset.content = val;
     ele.value = '*'.repeat(val.length);
   } else if (ele.matches('[type="text"]')) {
+    ele.value = val;
+  } else if (ele.matches('[type="number"]')) {
     ele.value = val;
   } else if (ele.matches('[type="checkbox"]')) {
     ele.checked = val;
@@ -1030,6 +1078,12 @@ function setSetting(settingId, val) {
 
 function getSetting(settingId) {
   const panel = $(`#${SCRIPT_ID}--panel`);
+
+  // background task
+  if (!panel) {
+    return GM_getValue(settingId, defaultSettings[settingId]);
+  }
+
   const ele = $(`[data-sync-setting="${settingId}"]`, panel);
 
   if (!ele) return;
@@ -1037,6 +1091,8 @@ function getSetting(settingId) {
     return ele.dataset.content;
   } else if (ele.matches('[type="text"]')) {
     return ele.value;
+  } else if (ele.matches('[type="number"]')) {
+    return Number.parseInt(ele.value);
   } else if (ele.matches('[type="checkbox"]')) {
     return ele.checked;
   } else if (ele.matches(`span.${SCRIPT_ID}__radio-button-container`)) {
@@ -1164,6 +1220,17 @@ function setClientHash(image, hash) {
   GM_setValue('hash_store', store);
 }
 
+function autorun() {
+  const threshhold = getSetting('autorun') * 24 * 60 * 60 * 1000;
+  const now = Date.now();
+  const lastRan = GM_getValue('last_ran', 0);
+  const elapsed = now - lastRan;
+  if (threshhold !== 0 && elapsed > threshhold) {
+    startSync();
+  }
+}
+
 initCSS();
 initUI();
+autorun();
 })();
