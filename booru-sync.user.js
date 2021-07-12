@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Booru Sync
 // @description  Sync faves and upvotes across boorus.
-// @version      1.4.0
+// @version      1.4.1
 // @author       Marker
 // @license      MIT
 // @namespace    https://github.com/marktaiwan/
@@ -601,7 +601,7 @@ class BooruOnRailsSyncManager extends SyncManager {
   faveImage(imageId) {
     const url = window.location.origin + '/api/v2/interactions/fave';
     const body = {
-      class: 'Image',
+      class: 'Post',
       id: String(imageId),
       value: 'true',
       _method: 'PUT',
@@ -611,7 +611,7 @@ class BooruOnRailsSyncManager extends SyncManager {
   likeImage(imageId) {
     const url = window.location.origin + '/api/v2/interactions/vote';
     const body = {
-      class: 'Image',
+      class: 'Post',
       id: String(imageId),
       value: 'up',
       _method: 'PUT',
