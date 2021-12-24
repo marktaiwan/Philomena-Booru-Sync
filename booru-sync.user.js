@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Booru Sync
 // @description  Sync faves and upvotes across boorus.
-// @version      1.4.1
+// @version      1.4.2
 // @author       Marker
 // @license      MIT
 // @namespace    https://github.com/marktaiwan/
@@ -195,7 +195,7 @@ class SyncManager {
         interactionCallback = 'likeImage';
       }
 
-      this.log(`Searching for image ${linkifyImage(image)} (${++counter}/${total})`);
+      this.log(`Searching for image ${this.linkifyImage(image)} (${++counter}/${total})`);
       const {id, hashMatch, timeout, interaction: destInteraction} = await this.findImage(image);
 
       if (id && hashMatch) {
@@ -209,16 +209,16 @@ class SyncManager {
           this.log('Success');
           this.report[interactionReportType].new++;
         } else {
-          this.log(`[Error] Unable to sync: ${linkifyImage({host: this.host, id})}`);
+          this.log(`[Error] Unable to sync: ${this.linkifyImage({host: this.host, id})}`);
         }
       } else if (id && !hashMatch) {
-        this.log(`Possible match found for image '${linkifyImage(image)}' as '${linkifyImage({host: this.host, id})}'`);
+        this.log(`Possible match found for image '${this.linkifyImage(image)}' as '${this.linkifyImage({host: this.host, id})}'`);
         this.report[interactionReportType].suspected.push({sourceHost: image.host, source: image.id, dest: id});
       } else if (!id && timeout) {
         this.log('[Error] Connection timed out');
         this.report.timeouts.push({id: image.id, host: image.host});
       } else {
-        this.log('Not found: ' + linkifyImage(image));
+        this.log('Not found: ' + this.linkifyImage(image));
         this.report[interactionReportType].notFound++;
       }
     }
@@ -320,7 +320,7 @@ class SyncManager {
   performClientSideHash(image) {
     if (image.computedHash) return [image.hash];
 
-    this.log(`Downloading image ${linkifyImage(image)} for client-side hashing`);
+    this.log(`Downloading image ${this.linkifyImage(image)} for client-side hashing`);
 
     // special case for svg uploads
     const fullImageURL = (image.mime_type !== 'image/svg+xml')
@@ -428,6 +428,10 @@ class SyncManager {
     message = `${this.name}: ${message}`;
     log(message);
   }
+  linkifyImage(image) {
+    const imgLink = 'https://' + image.host + '/images/' + image.id;
+    return linkify(imgLink, image.id);
+  }
 }
 
 class PhilomenaSyncManager extends SyncManager {
@@ -478,7 +482,7 @@ class PhilomenaSyncManager extends SyncManager {
   }
   searchByImage(image) {
     const url = 'https://' + this.host + this.reverseSearchApi + '?url=' + image.fileURL;
-    this.log(`Performing reverse image search for ${linkifyImage(image)}`);
+    this.log(`Performing reverse image search for ${this.linkifyImage(image)}`);
     return makeRequest(url, 'POST')
       .then(this.handleResponse)
       .then(json => {
@@ -622,6 +626,10 @@ class BooruOnRailsSyncManager extends SyncManager {
     imageResponse = super.transformImageResponse(imageResponse);
     imageResponse.tags = imageResponse.tags.split(',').map(tagName => tagName.trim());
     return imageResponse;
+  }
+  linkifyImage(image) {
+    const imgLink = 'https://' + image.host + '/posts/' + image.id;
+    return linkify(imgLink, image.id);
   }
 }
 
@@ -1170,11 +1178,6 @@ function linkify(href, text = href) {
   a.relList.add('noreferrer', 'noopener');
   a.innerText = text;
   return a.outerHTML;
-}
-
-function linkifyImage(image) {
-  const imgLink = 'https://' + image.host + '/images/' + image.id;
-  return linkify(imgLink, image.id);
 }
 
 function log(message = '') {
