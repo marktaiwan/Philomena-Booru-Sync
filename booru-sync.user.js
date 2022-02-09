@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Booru Sync
 // @description  Sync faves and upvotes across boorus.
-// @version      1.4.2
+// @version      1.4.3
 // @author       Marker
 // @license      MIT
 // @namespace    https://github.com/marktaiwan/
@@ -75,6 +75,7 @@ const defaultSettings = {
 
 let activeSyncs = [];
 
+/** @abstract @class */
 class SyncManager {
   constructor(booruData, apiKey, settings, isSource = false) {
     const {name, host, filterId} = booruData;
@@ -97,11 +98,43 @@ class SyncManager {
       timeouts: []
     };
 
+    /* Rate limiting related properties */
+    this.hasRateLimit = false;
+    this.rateLimitReset = null;
+
     /* Must be initialized by subclass */
+    this.imageResultsProp = null;
     this.imageResultsProp = null;
     this.imageIdProp = null;
     this.searchApi = null;
     this.reverseSearchApi = null;
+  }
+  makeRequest(
+    url,
+    method = 'GET',
+    responseType = 'json',
+    additionalHeaders = {},
+    data = '',
+  ) {
+    return new Promise(resolve => {
+      const scriptName = GM_info.script.name.replace(/\W/g, '');
+      const scriptVersion = GM_info.script.version;
+
+      let headers = {'User-Agent': `${navigator.userAgent} ${scriptName}/${scriptVersion}`};
+      headers = {...headers, ...additionalHeaders};
+
+      GM_xmlhttpRequest({
+        url,
+        method,
+        responseType,
+        headers,
+        data,
+        timeout: TIMEOUT,
+        onload: resolve,
+        onerror: resp => resolve({error: true, ...resp}),
+        ontimeout: () => resolve({error: true, timeout: true, finalUrl: url}),
+      });
+    });
   }
   async getInteractions(sourceResultsCount = {faves: 0, likes: 0}) {
     const RESULTS_PER_PAGE = 50;
@@ -118,23 +151,14 @@ class SyncManager {
         if (!this.ok) return;
         this.log('Getting ' + name + '... Page ' + String(page));
         const query = makeQueryString({
-          q: encodeSearch(searchTerm),
+          q: searchTerm,
           filter_id: this.filterId,
           per_page: RESULTS_PER_PAGE,
           key: this.apiKey,
           page: page,
         });
         const url = 'https://' + this.host + this.searchApi + query;
-        response = await makeRequest(url).then(resp => {
-          if (resp.status == 200) {
-            return resp.response;
-          } else {
-            this.log('Error while fetching ' + linkify(url));
-            if (resp.response.error) this.log('Error message: ' + resp.response.error);
-            console.log(resp);
-            throw new Error();
-          }
-        });
+        response = await this.makeRequest(url).then(this.handleResponse.bind(this));
 
         if (page == 1 && !this.isSource) {
           // shortcut when it takes less requests overall to
@@ -150,7 +174,7 @@ class SyncManager {
 
         accu.push(...collection);
         page += 1;
-      } while (response.interactions.length > 0);
+      } while (response[this.imageResultsProp].length > 0);
 
       return accu;
     };
@@ -182,6 +206,7 @@ class SyncManager {
     const total = processingQueue.length;
     let counter = 0;
     for (const image of processingQueue) {
+      console.log({image});
       if (!this.ok) return;
 
       let interactionReportType;
@@ -195,7 +220,7 @@ class SyncManager {
         interactionCallback = 'likeImage';
       }
 
-      this.log(`Searching for image ${this.linkifyImage(image)} (${++counter}/${total})`);
+      this.log(`Searching for image ${linkifyImage(image)} (${++counter}/${total})`);
       const {id, hashMatch, timeout, interaction: destInteraction} = await this.findImage(image);
 
       if (id && hashMatch) {
@@ -209,16 +234,16 @@ class SyncManager {
           this.log('Success');
           this.report[interactionReportType].new++;
         } else {
-          this.log(`[Error] Unable to sync: ${this.linkifyImage({host: this.host, id})}`);
+          this.log(`[Error] Unable to sync: ${linkifyImage({host: this.host, id})}`);
         }
       } else if (id && !hashMatch) {
-        this.log(`Possible match found for image '${this.linkifyImage(image)}' as '${this.linkifyImage({host: this.host, id})}'`);
-        this.report[interactionReportType].suspected.push({sourceHost: image.host, source: image.id, dest: id});
+        this.log(`Possible match found for image '${linkifyImage(image)}' as '${linkifyImage({host: this.host, id})}'`);
+        this.report[interactionReportType].suspected.push({sourceHost: image.host, source: image.id, dest: id, path: image.path});
       } else if (!id && timeout) {
         this.log('[Error] Connection timed out');
-        this.report.timeouts.push({id: image.id, host: image.host});
+        this.report.timeouts.push({id: image.id, host: image.host, path: image.path});
       } else {
-        this.log('Not found: ' + this.linkifyImage(image));
+        this.log('Not found: ' + linkifyImage(image));
         this.report[interactionReportType].notFound++;
       }
     }
@@ -238,8 +263,8 @@ class SyncManager {
       }
     };
 
-    const {hash, orig_hash, computedHash} = image;
-    let {destId, interaction} = await this.searchByHash([hash, orig_hash]);
+    const {hash, orig_hash, computedHash, interaction: interactionType} = image;
+    let {destId, interaction} = await this.searchByHash([hash, orig_hash], interactionType);
     let hashMatch = true;
     let timeout = false;
 
@@ -251,7 +276,7 @@ class SyncManager {
             this.performClientSideHash(image),
             new Promise(resolve => {
 
-              /**
+              /*
                *  Dirty, ugly, evil, stupid, retarded hack because for
                *  SOME reason, GM_xmlhttpRequest will sometimes fail on
                *  large webm downloads WITHOUT triggering a timeout,
@@ -266,7 +291,7 @@ class SyncManager {
           if (hash.timeout) {
             throw hash;
           } else {
-            ({destId, interaction} = await this.searchByHash(hash));
+            ({destId, interaction} = await this.searchByHash(hash, interactionType));
           }
         } catch (err) {
           handleErr(err);
@@ -289,28 +314,38 @@ class SyncManager {
     // Implemented by subclass
     return null;
   }
-  searchByHash(hashes) {
+  /**
+   * @param {string[]} hashes
+   * @param {'fave'|'like'} interactionType
+   * @returns {Promise<{destId: number, interaction: {fave: boolean, like: boolean}}>}
+   */
+  searchByHash(hashes, interactionType) {
     const searchItems = [];
     hashes.forEach(hash => {
       searchItems.push('orig_sha512_hash:' + hash);
       searchItems.push('sha512_hash:' + hash);
     });
+    const searchTermBase = searchItems.join(' || ');
+    const interactionTerm = (interactionType == 'fave') ? 'my:faves' : 'my:upvotes';
+    const searchTermComplete = (this.hasRateLimit)
+      ? `-${interactionTerm} && (${searchTermBase})`
+      : searchTermBase;
     const query = makeQueryString({
-      q: encodeSearch(searchItems.join(' || ')),
+      q: searchTermComplete,
       filter_id: this.filterId,
       key: this.apiKey,
     });
     const url = 'https://' + this.host + this.searchApi + query;
 
-    return makeRequest(url)
-      .then(this.handleResponse)
+    return this.makeRequest(url)
+      .then(this.handleResponse.bind(this))
       .then(json => {
         const destId = (json[this.imageResultsProp].length > 0) ? json[this.imageResultsProp][0].id : null;
         const interaction = {
-          fave: json.interactions.some(
+          fave: json.interactions?.some(
             inter => inter[this.imageIdProp] == destId && inter.interaction_type == 'faved'
           ),
-          like: json.interactions.some(
+          like: json.interactions?.some(
             inter => inter[this.imageIdProp] == destId && inter.interaction_type == 'voted' && inter.value == 'up'
           )
         };
@@ -320,15 +355,15 @@ class SyncManager {
   performClientSideHash(image) {
     if (image.computedHash) return [image.hash];
 
-    this.log(`Downloading image ${this.linkifyImage(image)} for client-side hashing`);
+    this.log(`Downloading image ${linkifyImage(image)} for client-side hashing`);
 
     // special case for svg uploads
     const fullImageURL = (image.mime_type !== 'image/svg+xml')
       ? image.fileURL
       : image.fileURL.replace('/view/', /download/).replace(/\.\w+$/, '.svg');
 
-    return makeRequest(fullImageURL, 'GET', 'arraybuffer')
-      .then(this.handleResponse)
+    return this.makeRequest(fullImageURL, 'GET', 'arraybuffer')
+      .then(this.handleResponse.bind(this))
       .then(buffer => window.crypto.subtle.digest('SHA-512', buffer))
       .then(hashBuffer => {
 
@@ -351,6 +386,10 @@ class SyncManager {
   }
   handleResponse(resp) {
     if (resp.timeout || resp.error || resp.status !== 200) {
+      const errorType = resp.timeout ? 'Timeout' : 'Error';
+      this.log(`${errorType} while fetching ` + linkify(resp.finalUrl));
+      if (resp.response.error) this.log('Error message: ' + resp.response.error);
+      console.log({RequestResponse: resp});
       throw resp;
     }
     return resp.response;
@@ -362,7 +401,7 @@ class SyncManager {
       this.token.counter++;
       return this.token.content;
     } else {
-      return makeRequest('https://' + this.host, 'GET', 'text')
+      return this.makeRequest('https://' + this.host, 'GET', 'text')
         .then(resp => {
           const parser = new DOMParser();
           const text = resp.response;
@@ -377,6 +416,7 @@ class SyncManager {
   }
   transformImageResponse(imageResponse) {
     imageResponse.host = this.host;
+    imageResponse.path = this.imageResultsProp;
 
     const clientHash = getClientHash(imageResponse);
     imageResponse.hash = clientHash || imageResponse.sha512_hash;
@@ -410,27 +450,23 @@ class SyncManager {
       this.log('But potential match was found through reverse image search:');
 
       for (const record of records) {
-        const {sourceHost, source, dest} = record;
+        const {sourceHost, source, dest, path} = record;
         this.log();
-        this.log(`${indent(1)}source: ${linkify(`https://${sourceHost}/images/${source}`)}`);
-        this.log(`${indent(1)}=> target: ${linkify(`https://${this.host}/images/${dest}`)}`);
+        this.log(`${indent(1)}source: ${linkify(`https://${sourceHost}/${path}/${source}`)}`);
+        this.log(`${indent(1)}=> target: ${linkify(`https://${this.host}/${this.imageResultsProp}/${dest}`)}`);
       }
     }
     if (this.report.timeouts.length > 0) {
       this.log();
       this.log('The script timed out while downloading the following files:');
       for (const img of this.report.timeouts) {
-        this.log(indent(1) + linkify(`https://${img.host}/images/${img.id}`));
+        this.log(indent(1) + linkify(`https://${img.host}/${img.path}/${img.id}`));
       }
     }
   }
   log(message = '') {
     message = `${this.name}: ${message}`;
     log(message);
-  }
-  linkifyImage(image) {
-    const imgLink = 'https://' + image.host + '/images/' + image.id;
-    return linkify(imgLink, image.id);
   }
 }
 
@@ -443,7 +479,7 @@ class PhilomenaSyncManager extends SyncManager {
     this.reverseSearchApi = '/api/v1/json/search/reverse';
   }
   async makeInteractionRequest(url, body) {
-    const resp = await makeRequest(
+    const resp = await this.makeRequest(
       url,
       'POST',
       'json',
@@ -482,9 +518,9 @@ class PhilomenaSyncManager extends SyncManager {
   }
   searchByImage(image) {
     const url = 'https://' + this.host + this.reverseSearchApi + '?url=' + image.fileURL;
-    this.log(`Performing reverse image search for ${this.linkifyImage(image)}`);
-    return makeRequest(url, 'POST')
-      .then(this.handleResponse)
+    this.log(`Performing reverse image search for ${linkifyImage(image)}`);
+    return this.makeRequest(url, 'POST')
+      .then(this.handleResponse.bind(this))
       .then(json => {
         const results = json.images.filter(
           img => (img.duplicate_of === null && img.deletion_reason === null)
@@ -528,7 +564,7 @@ class PhilomenaSyncManager extends SyncManager {
               const [attrName, weight] = arr;
               const attrScore = attributes[attrName] * (weight / weightSum);
               return sum + attrScore;
-            } , 0);
+            }, 0);
 
           result.simScore = score;
         });
@@ -544,9 +580,37 @@ class PhilomenaSyncManager extends SyncManager {
 class BooruOnRailsSyncManager extends SyncManager {
   constructor(booruData, apiKey, settings, isSource = false) {
     super(booruData, apiKey, settings, isSource);
-    this.imageResultsProp = 'search';
+    this.imageResultsProp = 'posts';
     this.imageIdProp = 'post_id';
-    this.searchApi = '/search.json';
+    this.searchApi = '/api/v3/search/posts';
+    this.hasRateLimit = true;
+    this.rateLimitReset = null;
+  }
+  async makeRequest(...args) {
+    if (this.rateLimitReset) {
+      const remaining = secondsUntil(this.rateLimitReset);
+      if (remaining > 0) {
+        debugger;
+        this.log(`Rate limit exceeded. Waiting ${remaining} seconds.`);
+        await sleep(remaining * 1e3);
+        this.rateLimitReset = null;
+      }
+    }
+    return super.makeRequest(...args);
+  }
+  handleResponse(resp) {
+    super.handleResponse(resp);
+    // check rate limiting
+    const responseHeaders = parseResponseHeaders(resp.responseHeaders);
+    if (responseHeaders.has('x-rl-remain')) {
+      const remains = Number.parseInt(responseHeaders.get('x-rl-remain'), 10);
+      console.log({remains});
+      if (remains <= 0) {
+        debugger;
+        this.rateLimitReset = responseHeaders.get('x-rl-reset');
+      }
+    }
+    return resp.response;
   }
   async makeInteractionRequest(url, body) {
     const resp = await fetch(url, {
@@ -583,20 +647,16 @@ class BooruOnRailsSyncManager extends SyncManager {
     if (image.host == 'derpibooru.org') {
       const site = 'derpibooru';
       const query = makeQueryString({
-        q: encodeSearch(`location:${site} && id_at_location:${image.id}`),
+        q: `location:${site} && id_at_location:${image.id}`,
         filter_id: this.filterId
       });
       const url = 'https://' + this.host + this.searchApi + query;
-      const json = await makeRequest(url).then(this.handleResponse);
+      const json = await this.makeRequest(url).then(this.handleResponse.bind(this));
       if (json.total > 0) {
         destId = json[this.imageResultsProp][0].id;
         interaction = {
-          fave: json.interactions.some(
-            inter => inter[this.imageIdProp] == destId && inter.interaction_type == 'faved'
-          ),
-          like: json.interactions.some(
-            inter => inter[this.imageIdProp] == destId && inter.interaction_type == 'voted' && inter.value == 'up'
-          )
+          fave: false,
+          like: false,
         };
       }
     }
@@ -621,15 +681,6 @@ class BooruOnRailsSyncManager extends SyncManager {
       _method: 'PUT',
     };
     return this.makeInteractionRequest(url, body);
-  }
-  transformImageResponse(imageResponse) {
-    imageResponse = super.transformImageResponse(imageResponse);
-    imageResponse.tags = imageResponse.tags.split(',').map(tagName => tagName.trim());
-    return imageResponse;
-  }
-  linkifyImage(image) {
-    const imgLink = 'https://' + image.host + '/posts/' + image.id;
-    return linkify(imgLink, image.id);
   }
 }
 
@@ -1110,46 +1161,9 @@ function getSetting(settingId) {
   }
 }
 
-function makeRequest(
-  url,
-  method = 'GET',
-  responseType = 'json',
-  additionalHeaders = {},
-  data = ''
-) {
-  return new Promise((resolve) => {
-    const scriptName = GM_info.script.name.replace(/\W/g, '');
-    const scriptVersion = GM_info.script.version;
-
-    let headers = {'User-Agent': `${navigator.userAgent} ${scriptName}/${scriptVersion}`};
-    headers = {...headers, ...additionalHeaders};
-
-    GM_xmlhttpRequest({
-      url,
-      method,
-      responseType,
-      headers,
-      data,
-      timeout: TIMEOUT,
-      onload: resp => resolve(resp),
-      onerror: resp => resolve({error: true, url: resp.finalUrl, response: resp}),
-      ontimeout: () => resolve({timeout: true, error: true}),
-    });
-  });
-}
-
 function makeQueryString(queries) {
-  return '?' + Object
-    .entries(queries)
-    .map(arr => arr.join('='))
-    .join('&');
-}
-
-function encodeSearch(searchTerm) {
-  return searchTerm
-    .split(' ')
-    .map(unsafeWindow.encodeURIComponent)
-    .join('+');
+  const params = new URLSearchParams(queries);
+  return '?' + params.toString();
 }
 
 function presidentMadagascar(syncs) {
@@ -1178,6 +1192,11 @@ function linkify(href, text = href) {
   a.relList.add('noreferrer', 'noopener');
   a.innerText = text;
   return a.outerHTML;
+}
+
+function linkifyImage(image) {
+  const imgLink = 'https://' + image.host + '/' + image.path + '/' + image.id;
+  return linkify(imgLink, image.id);
 }
 
 function log(message = '') {
@@ -1231,6 +1250,29 @@ function autorun() {
   if (threshhold !== 0 && elapsed > threshhold) {
     startSync();
   }
+}
+
+function parseResponseHeaders(str) {
+  /** @type {Map<string, string>} */
+  const headers = new Map();
+  str
+    .split('\r\n')
+    .filter(line => line.length > 0)
+    .map(line => {
+      const [, key, value] = line.match(/^([^:]+):\s*(.*)$/);
+      headers.set(key, value);
+    });
+  return headers;
+}
+
+function secondsUntil(datestring) {
+  const now = Date.now();
+  const then = Date.parse(datestring);
+  return Math.ceil((then - now) / 1000);
+}
+
+function sleep(ms = 0) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 initCSS();
