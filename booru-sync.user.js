@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Booru Sync
 // @description  Sync faves and upvotes across boorus.
-// @version      1.4.4
+// @version      1.4.5
 // @author       Marker
 // @license      MIT
 // @namespace    https://github.com/marktaiwan/
@@ -206,7 +206,6 @@ class SyncManager {
     const total = processingQueue.length;
     let counter = 0;
     for (const image of processingQueue) {
-      console.log({image});
       if (!this.ok) return;
 
       let interactionReportType;
@@ -591,7 +590,7 @@ class BooruOnRailsSyncManager extends SyncManager {
       const remaining = secondsUntil(this.rateLimitReset);
       if (remaining > 0) {
         this.log(`Rate limit exceeded. Waiting ${remaining} seconds.`);
-        await sleep(remaining * 1e3);
+        await sleep((remaining + 1) * 1e3); // add an extra second to be safe
         this.rateLimitReset = null;
       }
     }
@@ -603,7 +602,6 @@ class BooruOnRailsSyncManager extends SyncManager {
     const responseHeaders = parseResponseHeaders(resp.responseHeaders);
     if (responseHeaders.has('x-rl-remain')) {
       const remains = Number.parseInt(responseHeaders.get('x-rl-remain'), 10);
-      console.log({remains});
       if (remains <= 0) {
         this.rateLimitReset = responseHeaders.get('x-rl-reset');
       }
@@ -1264,8 +1262,13 @@ function parseResponseHeaders(str) {
 }
 
 function secondsUntil(datestring) {
+  const re = (/^(\d+-\d+-\d+) (\d{2}:\d{2}:\d{2}) UTC$/);
+  const match = re.exec(datestring);
+  if (match === null) throw Error('Unable to parse: ' + datestring);
+
+  const [, date, time] = match;
   const now = Date.now();
-  const then = Date.parse(datestring);
+  const then = Date.parse(`${date}T${time}.000+00:00`);
   return Math.ceil((then - now) / 1000);
 }
 
