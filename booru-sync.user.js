@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Booru Sync
 // @description  Sync faves and upvotes across boorus.
-// @version      1.4.5
+// @version      1.4.6
 // @author       Marker
 // @license      MIT
 // @namespace    https://github.com/marktaiwan/
@@ -590,7 +590,7 @@ class BooruOnRailsSyncManager extends SyncManager {
       const remaining = secondsUntil(this.rateLimitReset);
       if (remaining > 0) {
         this.log(`Rate limit exceeded. Waiting ${remaining} seconds.`);
-        await sleep((remaining + 1) * 1e3); // add an extra second to be safe
+        await sleep((remaining + 5) * 1e3); // add an extra 5 seconds to be safe
         this.rateLimitReset = null;
       }
     }
