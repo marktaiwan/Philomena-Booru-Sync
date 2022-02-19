@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Booru Sync
 // @description  Sync faves and upvotes across boorus.
-// @version      1.4.6
+// @version      1.4.7
 // @author       Marker
 // @license      MIT
 // @namespace    https://github.com/marktaiwan/
@@ -30,7 +30,11 @@
 'use strict';
 
 const SCRIPT_ID = 'booru_sync';
-const TIMEOUT = 30 * 1e3;
+const SECOND = 1e3;
+const DAY = 24 * 60 * 60 * 1e3;
+const TIMEOUT = 30 * SECOND;
+const CACHE_AGE = 180 * DAY;
+const CACHE_CAPACITY = 100_000;
 
 const boorus = {
   derpibooru: {
@@ -75,14 +79,15 @@ const defaultSettings = {
 
 let activeSyncs = [];
 
-/** @abstract @class */
+/** @abstract */
 class SyncManager {
-  constructor(booruData, apiKey, settings, isSource = false) {
+  constructor(booruData, apiKey, settings, hashCache, isSource = false) {
     const {name, host, filterId} = booruData;
     this.name = name;
     this.host = host;
     this.apiKey = apiKey.trim();
     this.filterId = filterId;
+    this.hashCache = hashCache;
     this.isSource = isSource;
     this.syncFaves = settings.syncFaves;
     this.syncLikes = settings.syncLikes;
@@ -379,7 +384,7 @@ class SyncManager {
 
         image.computedHash = true;
         image.hash = hashHex;
-        setClientHash(image, hashHex);
+        this.hashCache.set(image, hashHex);
         return [hashHex];
       });
   }
@@ -417,7 +422,8 @@ class SyncManager {
     imageResponse.host = this.host;
     imageResponse.path = this.imageResultsProp;
 
-    const clientHash = getClientHash(imageResponse);
+    const clientHash = this.hashCache.get(imageResponse);
+    imageResponse.id = String(imageResponse.id);
     imageResponse.hash = clientHash || imageResponse.sha512_hash;
     imageResponse.computedHash = Boolean(clientHash);
     imageResponse.orig_hash = imageResponse.orig_sha512_hash;
@@ -470,8 +476,8 @@ class SyncManager {
 }
 
 class PhilomenaSyncManager extends SyncManager {
-  constructor(booruData, apiKey, settings, isSource = false) {
-    super(booruData, apiKey, settings, isSource);
+  constructor(booruData, apiKey, settings, hashCache, isSource = false) {
+    super(booruData, apiKey, settings, hashCache, isSource);
     this.imageResultsProp = 'images';
     this.imageIdProp = 'image_id';
     this.searchApi = '/api/v1/json/search/images';
@@ -577,8 +583,8 @@ class PhilomenaSyncManager extends SyncManager {
 }
 
 class BooruOnRailsSyncManager extends SyncManager {
-  constructor(booruData, apiKey, settings, isSource = false) {
-    super(booruData, apiKey, settings, isSource);
+  constructor(booruData, apiKey, settings, hashCache, isSource = false) {
+    super(booruData, apiKey, settings, hashCache, isSource);
     this.imageResultsProp = 'posts';
     this.imageIdProp = 'post_id';
     this.searchApi = '/api/v3/search/posts';
@@ -677,6 +683,76 @@ class BooruOnRailsSyncManager extends SyncManager {
       _method: 'PUT',
     };
     return this.makeInteractionRequest(url, body);
+  }
+}
+
+/** Class for storing computed image hash */
+class HashCache {
+  storageId = 'hash_store';
+  version = 2;
+  storageBase = {
+    _version: this.version
+  };
+  store = {};
+  modified = false;
+  constructor(hosts) {
+    let extensionStorage = GM_getValue(this.storageId, {...this.storageBase});
+
+    // clear previous storage version
+    if (extensionStorage._version !== this.version) {
+      extensionStorage = {...this.storageBase};
+      this.modified = true;
+    }
+
+    hosts.forEach(host => {
+      const siteCache = extensionStorage?.[host] ?? [];
+      this.store[host] = new TLRUCache(siteCache);
+    });
+  }
+  set(image, hash) {
+    this.modified = true;
+    this.store[image.host].set(image.id, hash);
+  }
+  get(image) {
+    return this.store[image.host].get(image.id);
+  }
+  saveToStorage() {
+    const obj = {...this.storageBase};
+    Object.keys(this.store).forEach(host => {
+      obj[host] = this.store[host].toArray();
+    });
+    GM_setValue(this.storageId, obj);
+  }
+}
+
+class TLRUCache {
+  maxAge = CACHE_AGE;
+  capacity = CACHE_CAPACITY;
+  constructor(entries = []) {
+    this.capacity = CACHE_CAPACITY;
+    this.cache = new Map(entries);
+  }
+  set(key, value) {
+    this.cache.set(key, {v: value, t: Date.now()});
+    while (this.cache.size > this.capacity) {
+      this.cache.delete(this.cache.keys().next().value);
+    }
+  }
+  get(key) {
+    const element = this.cache.get(key);
+    if (!element) return undefined;
+    const {v: value, t: timestamp} = element;
+
+    // reorder element to the end of the list
+    this.cache.delete(key);
+    if (Date.now() - timestamp < this.maxAge) {
+      this.cache.set(key, element);
+    }
+
+    return value;
+  }
+  toArray() {
+    return Array.from(this.cache);
   }
 }
 
@@ -1038,11 +1114,16 @@ async function startSync() {
     tagFilter: getSetting('tag_filter'),
   };
 
+  log('Loading client-side hash from script storage...');
+  const hashCache = new HashCache(Object.values(boorus).map(booru => booru.host));
+  log('Done');
+
   const sourceId = getSetting('sync_source');
   const sourceBooru = createSyncManager(
     boorus[sourceId],
     getSetting(`${sourceId}_api`),
     settings,
+    hashCache,
     true
   );
 
@@ -1054,7 +1135,8 @@ async function startSync() {
     destBoorus[booruId] = createSyncManager(
       boorus[booruId],
       getSetting(`${booruId}_api`),
-      settings
+      settings,
+      hashCache
     );
     activeSyncs.push(destBoorus[booruId]);
   }
@@ -1084,6 +1166,12 @@ async function startSync() {
       .filter(booru => booru.ok)
       .map(booru => booru.sync(sourceBooru.faves, sourceBooru.likes))
   );
+
+  if (hashCache.modified) {
+    log('Saving client-side hash to storage...');
+    hashCache.saveToStorage();
+    log('Done');
+  }
 
   // reports
   Object.values(destBoorus).forEach(booru => booru.printReport());
@@ -1226,20 +1314,8 @@ function downloadLog() {
   anchor.remove();
 }
 
-function getClientHash(image) {
-  const store = GM_getValue('hash_store', {});
-  return store[image.host]?.[image.id]?.hash;
-}
-
-function setClientHash(image, hash) {
-  const store = GM_getValue('hash_store', {});
-  if (!store[image.host]) store[image.host] = {};
-  store[image.host][image.id] = {hash, timestamp: Date.now()};
-  GM_setValue('hash_store', store);
-}
-
 function autorun() {
-  const threshhold = getSetting('autorun') * 24 * 60 * 60 * 1000;
+  const threshhold = getSetting('autorun') * DAY;
   const now = Date.now();
   const lastRan = GM_getValue('last_ran', 0);
   const elapsed = now - lastRan;
