@@ -496,6 +496,7 @@ class PhilomenaSyncManager extends SyncManager {
         // When encountering an error, the response may not be in json.
         // In this situation, accessing resp.response on a malformed
         // response will cause it to throw a SyntaxError
+        // eslint-disable-next-line @typescript-eslint/no-unused-expressions
         resp.response;
       } catch (error) {
         if (error instanceof SyntaxError) {
